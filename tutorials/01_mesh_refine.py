@@ -1,0 +1,154 @@
+import os
+from pathlib import Path
+
+from random import choice
+from compas.geometry import Point, Vector
+from compas.datastructures import Mesh, mesh_thicken
+from compas.utilities import geometric_key_xy
+from compas_gmsh.models import MeshModel
+from compas_view2.app import App
+from compas_view2.shapes import Arrow
+
+import compas_fea2
+from compas_fea2.model import Model, DeformablePart, Node
+from compas_fea2.model import RectangularSection, ElasticIsotropic, SolidSection
+from compas_fea2.problem import Problem, StaticStep, FieldOutput
+
+from compas_fea2.units import units
+units = units(system='SI_mm')
+
+compas_fea2.set_backend('abaqus')
+
+HERE = os.path.dirname(__file__)
+TEMP = os.sep.join(HERE.split(os.sep)[:-1]+['temp'])
+
+
+# ==============================================================================
+# Make a plate mesh
+# ==============================================================================
+lx = (10*units.m).to_base_units().magnitude
+ly = (10*units.m).to_base_units().magnitude
+nx = 5
+ny = 5
+mesh = Mesh.from_meshgrid(lx, nx, ly, ny)
+plate = mesh_thicken(mesh, 200)
+
+# ==============================================================================
+# Select random internal vertex for load application
+# ==============================================================================
+
+poa = choice(list(set(mesh.vertices()) - set(mesh.vertices_on_boundary())))
+poa_coordinates = mesh.vertex_coordinates(poa)
+
+# ==============================================================================
+# GMSH model
+# ==============================================================================
+
+model = MeshModel.from_mesh(plate, targetlength=500)
+
+# refine mesh at the point of application of the load
+model.mesh_targetlength_at_vertex(poa, 50)
+
+# refine mesh at the supports
+for vertex in mesh.vertices_where({'vertex_degree': 2}):
+    a = geometric_key_xy(mesh.vertex_coordinates(vertex))
+    for vertex in plate.vertices():
+        b = geometric_key_xy(plate.vertex_coordinates(vertex))
+        if a == b:
+            model.mesh_targetlength_at_vertex(vertex, 50)
+
+model.heal()
+model.generate_mesh(3)
+# model.optimize_mesh(niter=10)
+# model.recombine_mesh()
+
+# ==============================================================================
+# COMPAS mesh
+# ==============================================================================
+
+solid_mesh = model.mesh_to_compas()
+lengths = [solid_mesh.edge_length(*edge) for edge in solid_mesh.edges()]
+print('Min length: ', min(lengths))
+print('Max length: ', max(lengths))
+
+# ==============================================================================
+# Viz
+# ==============================================================================
+
+viewer = App(width=1600, height=900)
+
+viewer.view.camera.rz = 0
+viewer.view.camera.rx = -55
+viewer.view.camera.tx = -5
+viewer.view.camera.ty = -2
+viewer.view.camera.distance = 10
+
+viewer.view.camera.target = [5000, 5000, 100]
+viewer.view.camera.position = [5000, 0, 5000]
+viewer.view.camera.near = 10
+viewer.view.camera.far = 100000
+viewer.view.camera.scale = 1000
+viewer.view.grid.cell_size = 1000
+
+viewer.add(solid_mesh)
+
+poa = Point(* plate.vertex_coordinates(poa))
+start = poa + Vector(0, 0, 1000)
+vector = Vector(0, 0, -1000)
+load = Arrow(start, vector, body_width=0.02)
+
+viewer.add(poa, pointsize=5)
+viewer.add(load, facecolor=(1, 0, 0))
+
+viewer.run()
+
+# ==============================================================================
+# COMPAS_FEA2
+# ==============================================================================
+
+# Initialize model
+mdl = Model()
+
+# Define some properties
+mat = ElasticIsotropic(E=(210*units.GPa).to_base_units().magnitude, 
+                       v=0.2, 
+                       density=(7800*units("kg/m**3")).to_base_units().magnitude)
+sec = SolidSection(material=mat)
+
+# Convert the gmsh model in a compas_fea2 Part
+prt = DeformablePart.from_gmsh(gmshModel=model, section=sec)
+mdl.add_part(prt)
+
+# Set boundary conditions in the corners
+for vertex in mesh.vertices_where({'vertex_degree': 2}):
+    location = mesh.vertex_coordinates(vertex)
+    mdl.add_fix_bc(nodes=prt.find_nodes_by_location(location, distance=150))
+
+# mdl.summary()
+
+# Initialize a step
+stp = StaticStep()
+
+# Add the load
+pt = prt.find_closest_nodes_to_point(poa_coordinates, distance=150)
+stp.add_point_load(nodes=pt,
+                      z=-(10*units.kN).to_base_units().magnitude)
+
+# Ask for field outputs
+fout = FieldOutput(node_outputs=['U', 'RF'])
+stp.add_output(fout)
+
+# Set-up the problem
+prb = Problem('01_mesh_refine')
+prb.add_step(stp)
+# prb.summary()
+mdl.add_problem(problem=prb)
+
+# Analyze and extracte results to SQLite database
+mdl.analyse_and_extract(problems=[prb], path=Path(TEMP).joinpath(prb.name), verbose=True)
+
+# Serialize
+mdl.to_cfm(Path(TEMP).joinpath(prb.name, 'model.cfm'))
+
+# Show Results
+prb.show_displacements(draw_loads=100)

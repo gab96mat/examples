@@ -17,7 +17,8 @@ from compas_fea2.problem import Problem, StaticStep, FieldOutput
 from compas_fea2.units import units
 units = units(system='SI_mm')
 
-compas_fea2.set_backend('abaqus')
+# compas_fea2.set_backend('abaqus')
+compas_fea2.set_backend('opensees')
 
 HERE = os.path.dirname(__file__)
 TEMP = os.sep.join(HERE.split(os.sep)[:-1]+['temp'])
@@ -31,7 +32,7 @@ ly = (10*units.m).to_base_units().magnitude
 nx = 5
 ny = 5
 mesh = Mesh.from_meshgrid(lx, nx, ly, ny)
-plate = mesh_thicken(mesh, 200)
+plate = mesh_thicken(mesh, 100)
 
 # ==============================================================================
 # Select random internal vertex for load application
@@ -108,7 +109,6 @@ viewer.run()
 
 # Initialize model
 mdl = Model()
-
 # Define some properties
 mat = ElasticIsotropic(E=(210*units.GPa).to_base_units().magnitude, 
                        v=0.2, 
@@ -117,6 +117,8 @@ sec = SolidSection(material=mat)
 
 # Convert the gmsh model in a compas_fea2 Part
 prt = DeformablePart.from_gmsh(gmshModel=model, section=sec)
+prt.ndf=3 # this is needed for the opensees FourNodeTetrahedron model
+prt._discretized_boundary_mesh = solid_mesh
 mdl.add_part(prt)
 
 # Set boundary conditions in the corners
@@ -145,10 +147,12 @@ prb.add_step(stp)
 mdl.add_problem(problem=prb)
 
 # Analyze and extracte results to SQLite database
-mdl.analyse_and_extract(problems=[prb], path=Path(TEMP).joinpath(prb.name), verbose=True)
+mdl.analyse(problems=[prb], path=Path(TEMP).joinpath(prb.name), verbose=True)
+# mdl.analyse_and_extract(problems=[prb], path=Path(TEMP).joinpath(prb.name), verbose=True)
 
 # Serialize
-mdl.to_cfm(Path(TEMP).joinpath(prb.name, 'model.cfm'))
+# mdl.to_cfm(Path(TEMP).joinpath(prb.name, 'model.cfm'))
+prb.convert_results_to_sqlite(Path(TEMP).joinpath(prb.name, prb.name))
 
 # Show Results
 prb.show_displacements(draw_loads=100)

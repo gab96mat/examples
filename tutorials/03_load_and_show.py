@@ -7,8 +7,6 @@ from compas_fea2.model import Model
 from compas_fea2.units import units
 units = units(system='SI_mm')
 
-compas_fea2.set_backend('abaqus')
-
 HERE = os.path.dirname(__file__)
 TEMP = os.sep.join(HERE.split(os.sep)[:-1]+['temp'])
 

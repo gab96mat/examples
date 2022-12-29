@@ -13,8 +13,8 @@ from compas_fea2.problem import Problem, StaticStep, FieldOutput
 from compas_fea2.units import units
 units = units(system='SI_mm')
 
-compas_fea2.set_backend('abaqus')
-# compas_fea2.set_backend('opensees')
+compas_fea2.set_backend('compas_fea2_sofistik')
+# compas_fea2.set_backend('compas_fea2_opensees')
 
 HERE = os.path.dirname(__file__)
 TEMP = os.sep.join(HERE.split(os.sep)[:-1]+['temp'])
@@ -45,8 +45,8 @@ step_1 = StaticStep()
 pt = prt.find_node_by_key(random.choice(list(filter(lambda v: mesh.vertex_degree(v)!=2, mesh.vertices()))))
 step_1.add_point_load(nodes=[pt],
                       z=-(10*units.kN).to_base_units().magnitude)
-fout = FieldOutput(node_outputs=['U', 'RF'])
-step_1.add_output(fout)
+# fout = FieldOutput(node_outputs=['U', 'RF'])
+# step_1.add_output(fout)
 # hout = HistoryOutput('hout_test')
 
 # set-up the problem

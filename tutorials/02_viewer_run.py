@@ -23,8 +23,7 @@ from compas_fea2.problem import Problem, StaticStep, FieldOutput
 from compas_fea2.units import units
 units = units(system='SI_mm')
 
-compas_fea2.set_backend('abaqus')
-# compas_fea2.set_backend('opensees')
+compas_fea2.set_backend('compas_fea2_opensees')
 
 HERE = os.path.dirname(__file__)
 TEMP = os.sep.join(HERE.split(os.sep)[:-1]+['temp'])
